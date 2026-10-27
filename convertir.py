@@ -162,7 +162,8 @@ class Convertisseur:
         if not self.mkdocs or len(rel) <= LIMITE_CHEMIN:
             return rel
         empreinte = hashlib.sha1(rel.lower().encode("utf-8")).hexdigest()[:10]
-        return f"_fichiers/{empreinte}/{posixpath.basename(rel)[-60:]}"
+        # Pas de « _ » en tête : GitHub Pages (Jekyll) et d'autres hébergeurs ignorent ces dossiers.
+        return f"sp2md-fichiers/{empreinte}/{posixpath.basename(rel)[-60:]}"
 
     def vers_brut(self, depuis_md: str, rel: str) -> str:
         """Lien vers un fichier d'origine : dans brut/, ou copié à côté en mode MkDocs (site autonome)."""
@@ -182,6 +183,21 @@ class Convertisseur:
         for texte in soup.find_all(string=lambda s: "\xa0" in s):
             if not texte.find_parent(["pre", "code"]):
                 texte.replace_with(texte.replace("\xa0", " "))
+        # Image insérée dans le texte : un bloc « imagePlugin » qui ne contient pas de balise <img>.
+        for bloc in soup.find_all(attrs={"data-imageurl": True}):
+            image = soup.new_tag("img", src=bloc["data-imageurl"], alt=bloc.get("data-alttext") or "")
+            paragraphe = soup.new_tag("p")
+            if bloc.get("data-linkurl"):
+                lien = soup.new_tag("a", href=bloc["data-linkurl"])
+                lien.append(image)
+                paragraphe.append(lien)
+            else:
+                paragraphe.append(image)
+            if bloc.get("data-captiontext"):
+                legende = soup.new_tag("em")
+                legende.string = bloc["data-captiontext"]
+                paragraphe.extend([soup.new_tag("br"), legende])
+            bloc.replace_with(paragraphe)
         # Tableau d'une seule case (encadré de mise en valeur) : rendu en citation.
         for table in soup.find_all("table"):
             cases = table.find_all(["td", "th"])
@@ -571,6 +587,8 @@ class Convertisseur:
                 texte = self.markitdown.convert(lp(src), stream_info=StreamInfo(extension=".xlsx")).text_content or ""
             else:
                 texte = self.markitdown.convert(lp(src)).text_content or ""
+        # Binaire déguisé (zip renommé en .txt…) : on retire les caractères de contrôle.
+        texte = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", texte)
         ecrire_texte(cache, texte)
         log(f"  converti {rel}")
         return texte
