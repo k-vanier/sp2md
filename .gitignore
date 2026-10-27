@@ -3,3 +3,10 @@ build/
 dist/
 __pycache__/
 *.spec
+
+# Copies de sites SharePoint (contenu de l'entreprise) : jamais dans le dépôt.
+sharepoint/
+*.tar
+*.zip
+**/brut/
+sp2md.log

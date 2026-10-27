@@ -2,4 +2,6 @@ playwright
 beautifulsoup4
 markdownify
 markitdown[docx,pptx,xlsx,xls,pdf,outlook]
+mkdocs
+mkdocs-material
 pyinstaller

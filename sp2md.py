@@ -58,7 +58,7 @@ def session_sharepoint(url):
 
 # ---------- actions ----------
 
-def copier(url, sortie: Path, markdown=True, documents=True, sous_sites=True):
+def copier(url, sortie: Path, markdown=True, documents=True, sous_sites=True, mkdocs=True):
     from telecharger import Aspirateur
 
     with session_sharepoint(url) as (_, client, web):
@@ -67,27 +67,32 @@ def copier(url, sortie: Path, markdown=True, documents=True, sous_sites=True):
         log(f"Connecté. Site : « {web['Title']} » -> {dossier}")
         Aspirateur(client, web, dossier / "brut", sous_sites).lancer(web["Url"], web)
     if markdown:
-        convertir(dossier, documents)
-    bilan(dossier, markdown)
+        convertir(dossier, documents, mkdocs)
+    bilan(dossier, markdown, markdown and mkdocs)
 
 
-def refaire_markdown(dossier: Path, documents=True):
+def refaire_markdown(dossier: Path, documents=True, mkdocs=True):
     if not existe(dossier / "brut" / DOSSIER_META / "site.json"):
         raise RuntimeError(f"{dossier} n'est pas une copie faite par sp2md (brut\\{DOSSIER_META}\\site.json absent).")
     log.ouvrir(dossier / "sp2md.log")
-    convertir(dossier, documents)
-    bilan(dossier, True)
+    convertir(dossier, documents, mkdocs)
+    bilan(dossier, True, mkdocs)
 
 
-def convertir(dossier: Path, documents: bool):
+def convertir(dossier: Path, documents: bool, mkdocs: bool):
     from convertir import Convertisseur
     Convertisseur(dossier, documents=documents).lancer()
+    if mkdocs:
+        from mkdocs_site import generer_mkdocs
+        generer_mkdocs(dossier, documents)
 
 
-def bilan(dossier: Path, markdown: bool):
+def bilan(dossier: Path, markdown: bool, mkdocs=False):
     log(f"Terminé. Copie brute : {dossier / 'brut'}")
     if markdown:
         log(f"          Markdown    : {dossier / 'markdown' / 'index.md'}")
+    if mkdocs:
+        log(f"          Site MkDocs : {dossier / 'mkdocs' / 'site' / 'index.html'} (à publier : dossier mkdocs\\site)")
     if log.erreurs:
         log(f"{len(log.erreurs)} erreur(s), détail dans {dossier / 'sp2md.log'}")
 
@@ -173,9 +178,9 @@ def menu():
         print(" sp2md - SharePoint Online vers Markdown")
         print(f" Dossier de travail : {travail}")
         print("=" * 60)
-        print(" 1. Copier un site et le convertir en Markdown")
-        print(" 2. Copier un site seulement (sans Markdown)")
-        print(" 3. Refaire le Markdown d'une copie existante")
+        print(" 1. Copier un site et le convertir (Markdown + site MkDocs)")
+        print(" 2. Copier un site seulement (sans conversion)")
+        print(" 3. Reconvertir une copie existante (Markdown + site MkDocs)")
         print(" 4. Remplir un site de test")
         print(" 5. Changer le dossier de travail")
         print(" 6. Oublier la connexion (changer de compte)")
@@ -193,13 +198,15 @@ def menu():
                     continue
                 markdown = choix == "1"
                 documents = markdown and oui_non("Convertir aussi Word, Excel, PowerPoint et PDF en Markdown ?")
+                mkdocs = markdown and oui_non("Créer aussi le site MkDocs prêt à publier ?")
                 sous_sites = oui_non("Inclure les sous-sites ?")
-                copier(url, travail, markdown, documents, sous_sites)
+                copier(url, travail, markdown, documents, sous_sites, mkdocs)
             elif choix == "3":
                 dossier = choisir_copie(travail)
                 if not dossier:
                     continue
-                refaire_markdown(dossier, oui_non("Convertir aussi Word, Excel, PowerPoint et PDF en Markdown ?"))
+                documents = oui_non("Convertir aussi Word, Excel, PowerPoint et PDF en Markdown ?")
+                refaire_markdown(dossier, documents, oui_non("Créer aussi le site MkDocs prêt à publier ?"))
             elif choix == "4":
                 url = demander_url()
                 if not url:
@@ -245,6 +252,7 @@ def main():
     ap.add_argument("--sans-markdown", action="store_true", help="télécharger seulement")
     ap.add_argument("--sans-documents", action="store_true", help="ne pas convertir les documents Office/PDF en Markdown")
     ap.add_argument("--sans-sous-sites", action="store_true", help="ne pas descendre dans les sous-sites")
+    ap.add_argument("--sans-mkdocs", action="store_true", help="ne pas créer le site MkDocs")
     ap.add_argument("--markdown-seulement", metavar="DOSSIER", help="refaire la conversion d'une copie existante")
     ap.add_argument("--remplir-test", metavar="URL", help="ajouter du contenu de test dans un site (pour essayer sp2md)")
     args = ap.parse_args()
@@ -253,10 +261,10 @@ def main():
         if args.remplir_test:
             remplir_site_test(args.remplir_test)
         elif args.markdown_seulement:
-            refaire_markdown(Path(args.markdown_seulement), not args.sans_documents)
+            refaire_markdown(Path(args.markdown_seulement), not args.sans_documents, not args.sans_mkdocs)
         elif args.url:
             copier(args.url, Path(args.sortie).resolve(), not args.sans_markdown,
-                   not args.sans_documents, not args.sans_sous_sites)
+                   not args.sans_documents, not args.sans_sous_sites, not args.sans_mkdocs)
         else:
             ap.error("indiquez l'URL du site, ou lancez sp2md sans argument pour le menu.")
     except KeyboardInterrupt:

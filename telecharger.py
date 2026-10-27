@@ -151,10 +151,14 @@ class Aspirateur:
             f"{self.nb_ignores} déjà à jour, {self.octets / 1e6:.1f} Mo, {self.c.nb_requetes} requêtes.")
 
     def web(self, url_web):
-        web = self.c.json(f"{url_web}/_api/web?$select=Title,Url,ServerRelativeUrl,Description,Id")
+        web = self.c.json(f"{url_web}/_api/web?$select=Title,Url,ServerRelativeUrl,Description,Id,Language,WebTemplate")
         web_rel = self.rel(web["ServerRelativeUrl"].rstrip("/")) or ""
         meta = self.meta / web_rel
         log(f"=== Site « {web['Title']} » ({web['Url']})")
+        try:
+            web["WelcomePage"] = self.c.json(f"{url_web}/_api/web/RootFolder?$select=WelcomePage").get("WelcomePage")
+        except ErreurSP:
+            pass
 
         navigation = {}
         for nom in ("QuickLaunch", "TopNavigationBar"):
@@ -204,12 +208,20 @@ class Aspirateur:
             colonnes = []
 
         if liste["BaseType"] == 1:  # bibliothèque de documents
-            select = ["Id", "Title", "FileRef", "FileLeafRef", "FSObjType", "Modified", "File_x0020_Size"]
-            select += [n for n in CHAMPS_PAGES if n in noms]  # bibliothèques de pages
-            try:
-                elements = self.c.tout(f"{api}/items?$select={','.join(select)}&$top=2000")
-            except ErreurSP:
-                elements = self.c.tout(f"{api}/items?$select=Id,FileRef,FileLeafRef,FSObjType&$top=2000")
+            base = "Id,FileRef,FileLeafRef,FSObjType"
+            pages = ",".join(["Title", "Modified"] + [n for n in CHAMPS_PAGES if n in noms])
+            # Du plus complet au plus simple : une colonne refusée ne doit pas faire perdre le contenu des pages.
+            essais = [f"$select={base},{pages},File/Length&$expand=File", f"$select={base},{pages}", f"$select={base}"]
+            for i, requete in enumerate(essais):
+                try:
+                    elements = self.c.tout(f"{api}/items?{requete}&$top=2000")
+                    break
+                except ErreurSP as e:
+                    if i == len(essais) - 1:
+                        raise
+                    log(f"  requête simplifiée ({e.statut})")
+            for el in elements:
+                el["File_x0020_Size"] = (el.pop("File", None) or {}).get("Length", el.get("File_x0020_Size"))
         else:
             try:
                 elements = self.c.tout(f"{api}/items?$expand=AttachmentFiles&$top=2000")
